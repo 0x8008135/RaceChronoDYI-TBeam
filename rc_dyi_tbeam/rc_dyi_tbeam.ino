@@ -37,7 +37,7 @@ BLECharacteristic *BLE_GPS_Main_Characteristic = NULL; //RaceChrono GPS Main cha
 BLECharacteristic *BLE_GPS_Time_Characteristic = NULL; //RaceChrono GPS Time characteristic UUID 0x04
 
 //TODO: BEFORE USING THIS CODE, CHANGE DEVICE NAME BELOW
-//String device_name = "UNIQUE NAME"
+//String device_name = "UNIQUE NAME";
 String device_name = "RC_DYI_" + String(random(0,65535));
 
 struct ublox {
@@ -449,79 +449,80 @@ void loop()
 {
 	if ( deviceConnected )
 	{
-		read_ublox();
+		if( read_ublox() ){
 
-		if (_validPacket.pvt.message_id == UBX_ID_NAV_PVT)
-		{
-			dateAndHour = (_validPacket.pvt.year- 2000) * 8928 + (_validPacket.pvt.month - 1) * 744 + (_validPacket.pvt.day - 1) * 24 + _validPacket.pvt.hour;
-
-			if (gpsPreviousDateAndHour != dateAndHour)
+			if ( _validPacket.pvt.message_id == UBX_ID_NAV_PVT )
 			{
-				gpsPreviousDateAndHour = dateAndHour;
-				gpsSyncBits++;
-				rc_data[0] = ((gpsSyncBits & 0x7) << 5) | ((dateAndHour >> 16) & 0x1F);
-				rc_data[1] = dateAndHour >> 8;
-				rc_data[2] = dateAndHour;
+				dateAndHour = (_validPacket.pvt.year- 2000) * 8928 + (_validPacket.pvt.month - 1) * 744 + (_validPacket.pvt.day - 1) * 24 + _validPacket.pvt.hour;
 
-				BLE_GPS_Time_Characteristic->setValue(rc_data, 3);
-				BLE_GPS_Time_Characteristic->notify();
+				if (gpsPreviousDateAndHour != dateAndHour)
+				{
+					gpsPreviousDateAndHour = dateAndHour;
+					gpsSyncBits++;
+					rc_data[0] = ((gpsSyncBits & 0x7) << 5) | ((dateAndHour >> 16) & 0x1F);
+					rc_data[1] = dateAndHour >> 8;
+					rc_data[2] = dateAndHour;
+
+					BLE_GPS_Time_Characteristic->setValue(rc_data, 3);
+					BLE_GPS_Time_Characteristic->notify();
+				}
+
+				/*
+				 * UBLOX         -> scaling:N/A unit:min name:min  desc:Minute of hour, range 0..59 (UTC)
+				 *               -> scaling:N/A unit:s   name:sec  desc:Seconds of minute, range 0..60 (UTC)
+				 *               -> scaling:N/A unit:ns  name:nano desc:Fraction of second, range -1e9 .. 1e9 (UTC)
+				 * RaceChrono    -> time from hour start = (minute * 30000) + (seconds * 500) + (milliseconds / 2)
+				 */
+				timeSinceHourStart = _validPacket.pvt.min * 30000 + _validPacket.pvt.sec * 500 + (_validPacket.pvt.nano / 1000000.0)/2;
+
+				/*
+				 * UBLOX         -> scaling:1e-5 unit:deg name:headMot desc:Heading of motion (2-D)
+				 * RaceChrono    -> scaling:1e+2 unit:deg
+				 */
+				int gps_bearing = max(0.0, round((double)_validPacket.pvt.headMot/1000.0));
+
+				/*
+				 * UBLOX         -> scaling:N/A unit:mm name:hMSL desc:Height above mean sea level
+				 * RaceChrono    -> scaling:N/A unit:deg
+				 */
+				int gps_altitude = ((double)_validPacket.pvt.hMSL * 1e-3) > 6000.f ? ((int)max(0.0, round(((double)_validPacket.pvt.hMSL * 1e-3) + 500.f)) & 0x7FFF) | 0x8000 : (int)max(0.0, round((((double)_validPacket.pvt.hMSL * 1e-3) + 500.f) * 10.f)) & 0x7FFF;
+
+				/*
+				 * UBLOX         -> scaling:N/A unit:mm/s name:gSpeed desc:Ground Speed (2-D)
+				 * RaceChrono    -> scaling:N/A unit:km/h
+				 */
+				int gps_speed = ((double)_validPacket.pvt.gSpeed * 0.0036) > 600.f ? ((int)(max(0.0, round(((double)_validPacket.pvt.gSpeed * 0.0036) * 10.f))) & 0x7FFF) | 0x8000 : (int)(max(0.0, round(((double)_validPacket.pvt.gSpeed * 0.0036)  * 100.f))) & 0x7FFF;
+
+				rc_data[0] = ((gpsSyncBits & 0x7) << 5) | ((timeSinceHourStart >> 16) & 0x1F);
+				rc_data[1] = timeSinceHourStart >> 8;
+				rc_data[2] = timeSinceHourStart;
+				rc_data[3] = ((min(0x03, (int)_validPacket.pvt.fixType) & 0x3) << 6) | ((min(0x3F, (int)_validPacket.pvt.numSV)) & 0x3F);
+				rc_data[4] = _validPacket.pvt.lat >> 24;
+				rc_data[5] = _validPacket.pvt.lat >> 16;
+				rc_data[6] = _validPacket.pvt.lat >> 8;
+				rc_data[7] = _validPacket.pvt.lat;
+				rc_data[8] = _validPacket.pvt.lon >> 24;
+				rc_data[9] =  _validPacket.pvt.lon >> 16;
+				rc_data[10] =  _validPacket.pvt.lon >> 8;
+				rc_data[11] =  _validPacket.pvt.lon;
+				rc_data[12] = gps_altitude >> 8;
+				rc_data[13] = gps_altitude;
+				rc_data[14] = gps_speed >> 8;
+				rc_data[15] = gps_speed;
+				rc_data[16] = gps_bearing >> 8;
+				rc_data[17] = gps_bearing;
+			} else if (_validPacket.dop.message_id ==UBX_ID_NAV_DOP) {
+				/*
+				 * UBLOX         -> scaling:1e-2 unit:N/A name:hDOP des:Horizontal DOP
+				 *               -> scaling:1e-2 unit:N/A name:vDOP des:Vertical DOP
+				 * RaceChrono    -> scaling:1e1  unit:N/A
+				 */
+				rc_data[18] = _validPacket.dop.hDOP/10;
+				rc_data[19] = _validPacket.dop.vDOP/10;
 			}
-
-			/*
-			 * UBLOX         -> scaling:N/A unit:min name:min  desc:Minute of hour, range 0..59 (UTC)
-			 *               -> scaling:N/A unit:s   name:sec  desc:Seconds of minute, range 0..60 (UTC)
-			 *               -> scaling:N/A unit:ns  name:nano desc:Fraction of second, range -1e9 .. 1e9 (UTC)
-			 * RaceChrono    -> time from hour start = (minute * 30000) + (seconds * 500) + (milliseconds / 2)
-			 */
-			timeSinceHourStart = _validPacket.pvt.min * 30000 + _validPacket.pvt.sec * 500 + (_validPacket.pvt.nano / 1000000.0)/2;
-
-			/*
-			 * UBLOX         -> scaling:1e-5 unit:deg name:headMot desc:Heading of motion (2-D)
-			 * RaceChrono    -> scaling:1e+2 unit:deg
-			 */
-			int gps_bearing = max(0.0, round((double)_validPacket.pvt.headMot/1000.0));
-
-			/*
-			 * UBLOX         -> scaling:N/A unit:mm name:hMSL desc:Height above mean sea level
-			 * RaceChrono    -> scaling:N/A unit:deg
-			 */
-			int gps_altitude = ((double)_validPacket.pvt.hMSL * 1e-3) > 6000.f ? ((int)max(0.0, round(((double)_validPacket.pvt.hMSL * 1e-3) + 500.f)) & 0x7FFF) | 0x8000 : (int)max(0.0, round((((double)_validPacket.pvt.hMSL * 1e-3) + 500.f) * 10.f)) & 0x7FFF;
-
-			/*
-			 * UBLOX         -> scaling:N/A unit:mm/s name:gSpeed desc:Ground Speed (2-D)
-			 * RaceChrono    -> scaling:N/A unit:km/h
-			 */
-			int gps_speed = ((double)_validPacket.pvt.gSpeed * 0.0036) > 600.f ? ((int)(max(0.0, round(((double)_validPacket.pvt.gSpeed * 0.0036) * 10.f))) & 0x7FFF) | 0x8000 : (int)(max(0.0, round(((double)_validPacket.pvt.gSpeed * 0.0036)  * 100.f))) & 0x7FFF;
-
-			rc_data[0] = ((gpsSyncBits & 0x7) << 5) | ((timeSinceHourStart >> 16) & 0x1F);
-			rc_data[1] = timeSinceHourStart >> 8;
-			rc_data[2] = timeSinceHourStart;
-			rc_data[3] = ((min(0x03, (int)_validPacket.pvt.fixType) & 0x3) << 6) | ((min(0x3F, (int)_validPacket.pvt.numSV)) & 0x3F);
-			rc_data[4] = _validPacket.pvt.lat >> 24;
-			rc_data[5] = _validPacket.pvt.lat >> 16;
-			rc_data[6] = _validPacket.pvt.lat >> 8;
-			rc_data[7] = _validPacket.pvt.lat;
-			rc_data[8] = _validPacket.pvt.lon >> 24;
-			rc_data[9] =  _validPacket.pvt.lon >> 16;
-			rc_data[10] =  _validPacket.pvt.lon >> 8;
-			rc_data[11] =  _validPacket.pvt.lon;
-			rc_data[12] = gps_altitude >> 8;
-			rc_data[13] = gps_altitude;
-			rc_data[14] = gps_speed >> 8;
-			rc_data[15] = gps_speed;
-			rc_data[16] = gps_bearing >> 8;
-			rc_data[17] = gps_bearing;
-		} else if (_validPacket.dop.message_id ==UBX_ID_NAV_DOP) {
-			/*
-			 * UBLOX         -> scaling:1e-2 unit:N/A name:hDOP des:Horizontal DOP
-			 *               -> scaling:1e-2 unit:N/A name:vDOP des:Vertical DOP
-			 * RaceChrono    -> scaling:1e1  unit:N/A
-			 */
-			rc_data[18] = _validPacket.dop.hDOP/10;
-			rc_data[19] = _validPacket.dop.vDOP/10;
+			BLE_GPS_Main_Characteristic->setValue(rc_data, 20);
+			BLE_GPS_Main_Characteristic->notify();
 		}
-		BLE_GPS_Main_Characteristic->setValue(rc_data, 20);
-		BLE_GPS_Main_Characteristic->notify();
 	}
 	if (!deviceConnected && oldDeviceConnected)
 	{
