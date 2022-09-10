@@ -105,7 +105,7 @@ void _calcChecksum(uint8_t *CK, uint8_t *payload, uint16_t length)
   CK[0] = 0;
   CK[1] = 0;
 
-  for (uint8_t i = 0; i < length; i++)
+  for (uint8_t i = 0; i < length-2; i++)
   {
     CK[0] += payload[i];
     CK[1] += CK[0];
