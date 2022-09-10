@@ -105,7 +105,7 @@ void _calcChecksum(uint8_t *CK, uint8_t *payload, uint16_t length)
   CK[0] = 0;
   CK[1] = 0;
 
-  for (uint8_t i = 0; i < length-2; i++)
+  for (uint8_t i = 0; i < length; i++)
   {
     CK[0] += payload[i];
     CK[1] += CK[0];
@@ -199,7 +199,7 @@ void ublox_noNMEA()
     //Set checksum bytes to the null.
     packet[packetSize - 2] = 0x00;
     packet[packetSize - 1] = 0x00;
-    _calcChecksum(&packet[packetSize - 2], &packet[2], (packetSize - 2));
+    _calcChecksum(&packet[packetSize - 2], &packet[2], (packetSize - 4));
 
     ublox_sendPacket(packet, packetSize); 
   }
