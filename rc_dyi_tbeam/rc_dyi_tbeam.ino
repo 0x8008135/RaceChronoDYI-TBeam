@@ -1,6 +1,3 @@
-//Library for AXP20x Power Management
-#include <axp20x.h>
-
 //Library for Bluetooth Low Energy
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -27,8 +24,6 @@ uint8_t rc_data[20];
 uint8_t gpsSyncBits = 0;
 
 int16_t msg_length;
-
-AXP20X_Class axp;
 
 HardwareSerial GPSSerial1(1);
 
@@ -316,7 +311,8 @@ void ublox_enableNavDop()
 //U-blox receiver configuration
 void configGPS()
 {
-  GPSSerial1.begin(9600, SERIAL_8N1, 34, 12);
+                                   //RX, TX
+  GPSSerial1.begin(9600, SERIAL_8N1, 22, 23);
   Serial.println("[I] U-BLOX configuration starting");
   Serial.println("[I] Disabling NMEA messages");
   ublox_noNMEA();
@@ -326,7 +322,7 @@ void configGPS()
   delay(100);
   GPSSerial1.end();
   delay(100);
-  GPSSerial1.begin(115200, SERIAL_8N1, 34, 12);
+  GPSSerial1.begin(115200, SERIAL_8N1, 22, 23);
   Serial.println("[I] Changing frequency to 10Hz");
   ublox_changeFrequency();
   Serial.println("[I] Enabling NAV-PVT / NAV-DOP messages");
@@ -361,37 +357,13 @@ void configBLE()
   BLEDevice::startAdvertising();
 }
 
-//AXP power management configuration
-void configAXP()
-{
-  Wire.begin(21, 22);
-  if (!axp.begin(Wire, AXP192_SLAVE_ADDRESS))   
-  {
-    Serial.println("[I] AXP192 Begin PASS");
-  }
-  else  
-  {
-    Serial.println("[I] AXP192 Begin FAIL");
-  }
-  axp.setDCDC1Voltage(3300);            //ESP32 3v3
-  axp.setLDO3Voltage(3300);            //GPS   3v3
-  axp.setPowerOutPut(AXP192_DCDC1, AXP202_ON);  //ESP32 ON
-  axp.setPowerOutPut(AXP192_LDO3, AXP202_ON);    //GPS   ON
-  axp.setPowerOutPut(AXP192_LDO2, AXP202_OFF);  //LORA
-  axp.setPowerOutPut(AXP192_EXTEN, AXP202_OFF);
-}
-
 //Setup UART/BLE/GPS/AXP
 void setup()
 {
   //ESP32 UART - 115200
   Serial.begin(115200);
   configBLE();
-  configAXP();
   configGPS();
-
-  //LED blink fast when ready
-  axp.setChgLEDMode(AXP20X_LED_BLINK_4HZ);
 }
 
 //U-blox read incoming messages
@@ -562,13 +534,11 @@ void loop()
   {
     delay(500);
     BLE_server->startAdvertising();
-    axp.setChgLEDMode(AXP20X_LED_BLINK_4HZ);
     Serial.println("[I] Bluetooth device discoverable");
     oldDeviceConnected = deviceConnected; 
   }
   if (deviceConnected && !oldDeviceConnected)
   {
-    axp.setChgLEDMode(AXP20X_LED_BLINK_1HZ);
     oldDeviceConnected = deviceConnected;   
   }
 }
