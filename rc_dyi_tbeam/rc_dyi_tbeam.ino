@@ -194,7 +194,7 @@ void ublox_noNMEA()
     //Set checksum bytes to the null.
     packet[packetSize - 2] = 0x00;
     packet[packetSize - 1] = 0x00;
-    _calcChecksum(&packet[packetSize - 2], &packet[2], (packetSize - 2));
+    _calcChecksum(&packet[packetSize - 2], &packet[2], (packetSize - 4));
 
     ublox_sendPacket(packet, packetSize); 
   }
